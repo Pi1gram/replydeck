@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "ReplyDeck",
+    "slug": "replydeck",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#15130f"
+      }
+    }
+  }
+}

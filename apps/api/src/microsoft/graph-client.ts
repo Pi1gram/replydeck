@@ -1,0 +1,219 @@
+/**
+ * Thin wrapper around Microsoft Graph HTTP endpoints we use in Phase 3.
+ *
+ * Always sends `Prefer: IdType="ImmutableId"` so message ids are stable across
+ * folder moves — we store these as `EmailCard.providerMessageId`.
+ *
+ * Kept as a class (rather than a namespace of free functions) so e2e tests can
+ * inject a stub via the Nest DI container.
+ */
+
+const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+
+export interface GraphMessageRecipient {
+  emailAddress?: { name?: string; address?: string };
+}
+
+export interface GraphMessage {
+  id: string;
+  conversationId?: string;
+  internetMessageId?: string;
+  subject?: string;
+  bodyPreview?: string;
+  receivedDateTime?: string;
+  hasAttachments?: boolean;
+  from?: GraphMessageRecipient;
+  toRecipients?: GraphMessageRecipient[];
+}
+
+export interface GraphTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+  scope?: string;
+  token_type: string;
+  id_token?: string;
+}
+
+export interface GraphMeResponse {
+  id: string;
+  mail?: string;
+  userPrincipalName?: string;
+  displayName?: string;
+}
+
+export class GraphHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly body: unknown,
+    message: string
+  ) {
+    super(message);
+    this.name = "GraphHttpError";
+  }
+}
+
+export class GraphClient {
+  /**
+   * Exchange an authorization code (PKCE) for tokens.
+   */
+  async exchangeCodeForTokens(args: {
+    tenantId: string;
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+    code: string;
+    codeVerifier: string;
+  }): Promise<GraphTokenResponse> {
+    const url = `https://login.microsoftonline.com/${args.tenantId}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+      client_id: args.clientId,
+      client_secret: args.clientSecret,
+      grant_type: "authorization_code",
+      code: args.code,
+      redirect_uri: args.redirectUri,
+      code_verifier: args.codeVerifier
+    });
+    return this.tokenRequest(url, body);
+  }
+
+  /**
+   * Refresh an access token using a refresh token.
+   */
+  async refreshTokens(args: {
+    tenantId: string;
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+  }): Promise<GraphTokenResponse> {
+    const url = `https://login.microsoftonline.com/${args.tenantId}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+      client_id: args.clientId,
+      client_secret: args.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: args.refreshToken
+    });
+    return this.tokenRequest(url, body);
+  }
+
+  async getMe(accessToken: string): Promise<GraphMeResponse> {
+    return this.graphGet<GraphMeResponse>("/me", accessToken);
+  }
+
+  async listRecentMessages(
+    accessToken: string,
+    top: number
+  ): Promise<GraphMessage[]> {
+    const safeTop = Math.max(1, Math.min(50, top));
+    const path =
+      `/me/messages?$top=${safeTop}` +
+      `&$orderby=receivedDateTime%20desc` +
+      `&$select=id,conversationId,internetMessageId,subject,bodyPreview,receivedDateTime,hasAttachments,from,toRecipients`;
+    const res = await this.graphGet<{ value: GraphMessage[] }>(
+      path,
+      accessToken
+    );
+    return res.value ?? [];
+  }
+
+  async listMessagesByConversation(
+    accessToken: string,
+    conversationId: string
+  ): Promise<GraphMessage[]> {
+    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const path =
+      `/me/messages?$filter=${filter}` +
+      `&$orderby=receivedDateTime%20asc` +
+      `&$select=id,conversationId,internetMessageId,subject,bodyPreview,receivedDateTime,hasAttachments,from,toRecipients`;
+    const res = await this.graphGet<{ value: GraphMessage[] }>(
+      path,
+      accessToken
+    );
+    return res.value ?? [];
+  }
+
+  async getMessage(
+    accessToken: string,
+    messageId: string
+  ): Promise<GraphMessage> {
+    return this.graphGet<GraphMessage>(
+      `/me/messages/${encodeURIComponent(messageId)}`,
+      accessToken
+    );
+  }
+
+  /**
+   * Reply to a message using Graph's createReply + send pattern would let us
+   * customize headers, but `/reply` is the simplest path and Outlook handles
+   * threading automatically.
+   */
+  async sendReply(args: {
+    accessToken: string;
+    messageId: string;
+    body: string;
+  }): Promise<void> {
+    const path = `/me/messages/${encodeURIComponent(args.messageId)}/reply`;
+    const res = await fetch(`${GRAPH_BASE}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        "Content-Type": "application/json",
+        Prefer: 'IdType="ImmutableId"'
+      },
+      body: JSON.stringify({
+        comment: args.body
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new GraphHttpError(
+        res.status,
+        text,
+        `Graph reply failed: ${res.status} ${res.statusText}`
+      );
+    }
+  }
+
+  private async graphGet<T>(path: string, accessToken: string): Promise<T> {
+    const res = await fetch(`${GRAPH_BASE}${path}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        Prefer: 'IdType="ImmutableId"'
+      }
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new GraphHttpError(
+        res.status,
+        text,
+        `Graph GET ${path} failed: ${res.status} ${res.statusText}`
+      );
+    }
+    return (await res.json()) as T;
+  }
+
+  private async tokenRequest(
+    url: string,
+    body: URLSearchParams
+  ): Promise<GraphTokenResponse> {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString()
+    });
+    const json = (await res.json()) as
+      | GraphTokenResponse
+      | { error: string; error_description?: string };
+    if (!res.ok || "error" in json) {
+      throw new GraphHttpError(
+        res.status,
+        json,
+        `OAuth token endpoint failed: ${
+          "error" in json ? json.error_description ?? json.error : res.statusText
+        }`
+      );
+    }
+    return json;
+  }
+}

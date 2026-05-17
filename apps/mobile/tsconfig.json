@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "typeRoots": ["./node_modules/@types"],
+    "paths": {
+      "@replydeck/shared": ["../../packages/shared/src"]
+    }
+  },
+  "include": ["src", "index.js"]
+}

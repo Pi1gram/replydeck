@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: replydeck
+      POSTGRES_PASSWORD: replydeck
+      POSTGRES_DB: replydeck
+    ports:
+      - "5433:5432"
+    volumes:
+      - replydeck_pg:/var/lib/postgresql/data
+
+volumes:
+  replydeck_pg:

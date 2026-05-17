@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailProvider {
+  OUTLOOK
+  GMAIL
+}
+
+enum EmailCardStatus {
+  PENDING
+  SENT
+  REJECTED
+  LATER
+  EDITED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum FeedbackAction {
+  APPROVED
+  EDITED
+  REJECTED
+  REGENERATED
+  SAVED_LATER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  emailCards        EmailCard[]
+  feedbackEvents    FeedbackEvent[]
+  auditLogs         AuditLog[]
+  connectedAccounts ConnectedEmailAccount[]
+}
+
+model ConnectedEmailAccount {
+  id                    String        @id @default(cuid())
+  userId                String
+  provider              EmailProvider
+  providerUserId        String?
+  email                 String
+  encryptedAccessToken  String
+  encryptedRefreshToken String
+  scopes                String[]
+  expiresAt             DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model EmailCard {
+  id                String          @id @default(cuid())
+  userId            String
+  // Phase 3: link to the upstream provider message. Null for Phase 2 seed cards.
+  provider          EmailProvider?
+  // Microsoft Graph immutable id (or other provider equivalent). NULL for synthetic cards.
+  providerMessageId String?
+  // RFC 5322 Message-ID header value, kept for debugging/dedup support.
+  internetMessageId String?
+  fromName          String
+  fromEmail         String
+  subject           String
+  receivedAt        DateTime
+  summary           String
+  senderIntent      String
+  contextUsed       Json
+  draftReply        String
+  confidenceScore   Int
+  riskLevel         RiskLevel
+  riskReason        String
+  // Microsoft Graph hasAttachments flag. NOTE: Graph does not include inline
+  // attachments in this signal — treat as best-effort.
+  hasAttachments    Boolean         @default(false)
+  status            EmailCardStatus @default(PENDING)
+  sentAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbackEvents FeedbackEvent[]
+  auditLogs      AuditLog[]
+
+  @@unique([userId, provider, providerMessageId])
+  @@index([userId, status])
+}
+
+model FeedbackEvent {
+  id          String         @id @default(cuid())
+  userId      String
+  emailCardId String
+  action      FeedbackAction
+  beforeText  String?
+  afterText   String?
+  createdAt   DateTime       @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailCard EmailCard @relation(fields: [emailCardId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([emailCardId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  emailCardId String?
+  action      String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailCard EmailCard? @relation(fields: [emailCardId], references: [id])
+
+  @@index([userId])
+}

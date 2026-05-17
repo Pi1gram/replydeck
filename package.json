@@ -1,0 +1,26 @@
+{
+  "name": "replydeck",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "@types/react": "19.1.17",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.17",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5"
+  },
+  "scripts": {
+    "mobile": "npm run start -w @replydeck/mobile",
+    "tunnel": "npm run tunnel -w @replydeck/mobile",
+    "web": "npm run web -w @replydeck/mobile",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
