@@ -12,9 +12,15 @@ type EditDraftScreenProps = {
   card: EmailCard;
   onCancel: () => void;
   onSave: (id: string, draftReply: string) => void;
+  saving?: boolean;
 };
 
-export function EditDraftScreen({ card, onCancel, onSave }: EditDraftScreenProps) {
+export function EditDraftScreen({
+  card,
+  onCancel,
+  onSave,
+  saving = false
+}: EditDraftScreenProps) {
   const [draft, setDraft] = useState(card.draftReply);
 
   return (
@@ -51,13 +57,21 @@ export function EditDraftScreen({ card, onCancel, onSave }: EditDraftScreenProps
       />
 
       <View style={styles.actions}>
-        <ActionButton label="Cancel" icon="close-outline" onPress={onCancel} flex />
+        <ActionButton
+          label="Cancel"
+          icon="close-outline"
+          onPress={onCancel}
+          flex
+          disabled={saving}
+        />
         <ActionButton
           label="Save edit"
           icon="checkmark"
           tone="primary"
           onPress={() => onSave(card.id, draft)}
           flex
+          loading={saving}
+          loadingLabel="Saving…"
         />
       </View>
     </ScreenShell>

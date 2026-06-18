@@ -334,7 +334,12 @@ describe("Microsoft / Outlook (e2e)", () => {
       expect(approveRes.body.status).toBe("sent");
       expect(handle.graph.sendCalls).toHaveLength(1);
       expect(handle.graph.sendCalls[0].messageId).toBe("msg-approve-1");
-      expect(handle.graph.sendCalls[0].body).toBe("Hello Eve, on it.");
+      // Body contains the user's draft plus the "Sent with ReplyDeck AI"
+      // footer appended by appendReplyDeckFooter() — see outbound-footer.ts.
+      expect(handle.graph.sendCalls[0].body).toContain("Hello Eve, on it.");
+      expect(handle.graph.sendCalls[0].body).toContain(
+        "Sent with ReplyDeck AI"
+      );
 
       const audits = await handle.prisma.auditLog.findMany({
         where: { emailCardId: cardId },

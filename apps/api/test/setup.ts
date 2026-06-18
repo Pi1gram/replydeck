@@ -15,6 +15,13 @@ if (!process.env.TOKEN_ENCRYPTION_KEY) {
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 }
 
+// Phase 4: force the mock AI provider in tests. Real Anthropic calls would
+// be slow ($$$ in CI, non-deterministic — Claude is conservative with vague
+// test fixtures and routes them to risk=high). Tests verify orchestrator
+// wiring; the real provider is exercised by scripts/smoke-anthropic.ts.
+process.env.AI_PROVIDER = "mock";
+delete process.env.ANTHROPIC_API_KEY;
+
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import cookieParser from "cookie-parser";

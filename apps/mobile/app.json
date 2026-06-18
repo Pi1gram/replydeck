@@ -5,14 +5,71 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": ["**/*"],
+    "scheme": "replydeck",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/154eae8b-ad58-45f0-9a5c-378915268f0b"
+    },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.replydeck.app",
+      "appleTeamId": "53P5L6ZRMQ",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.replydeck.shared"
+        ]
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoadsInWebContent": true
+        }
+      }
     },
     "android": {
+      "package": "com.replydeck.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#15130f"
       }
-    }
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "color": "#000000",
+          "androidMode": "default"
+        }
+      ],
+      "@bacons/apple-targets"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "154eae8b-ad58-45f0-9a5c-378915268f0b",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "bundleIdentifier": "com.replydeck.app.widget",
+                  "targetName": "widget"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "owner": "pilgram"
   }
 }

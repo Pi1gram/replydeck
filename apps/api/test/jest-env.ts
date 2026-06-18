@@ -27,3 +27,7 @@ process.env.MICROSOFT_REDIRECT_URI =
 process.env.APP_REDIRECT_AFTER_AUTH =
   process.env.APP_REDIRECT_AFTER_AUTH ||
   "http://localhost:4000/auth/connected";
+
+// Phase 4 — never hit the real Anthropic API from tests (see test/setup.ts).
+process.env.AI_PROVIDER = "mock";
+delete process.env.ANTHROPIC_API_KEY;

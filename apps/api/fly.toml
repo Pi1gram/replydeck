@@ -1,0 +1,33 @@
+app = "replydeck-api"
+primary_region = "syd"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4000"
+  NODE_ENV = "production"
+  OAUTH_COOKIE_SECURE = "true"
+  AI_PROVIDER = "anthropic"
+  PUSH_DRIVER = "expo"
+  PUBLIC_WEBHOOK_BASE_URL = "https://replydeck-api.fly.dev"
+  MICROSOFT_TENANT_ID = "common"
+  CORS_ORIGIN = "*"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

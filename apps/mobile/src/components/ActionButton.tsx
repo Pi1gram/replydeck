@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 
 import { colors } from "../theme/colors";
 
@@ -35,6 +35,9 @@ type ActionButtonProps = {
   tone?: ActionTone;
   onPress: () => void;
   flex?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
+  disabled?: boolean;
 };
 
 export function ActionButton({
@@ -42,13 +45,22 @@ export function ActionButton({
   icon,
   tone = "secondary",
   onPress,
-  flex = false
+  flex = false,
+  loading = false,
+  loadingLabel,
+  disabled = false
 }: ActionButtonProps) {
   const toneStyle = toneStyles[tone];
+  const isInactive = loading || disabled;
+  const displayLabel = loading && loadingLabel ? loadingLabel : label;
+  const accessibilityLabel = loading ? `${label}, in progress` : label;
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: isInactive, busy: loading }}
+      disabled={isInactive}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
@@ -56,12 +68,18 @@ export function ActionButton({
         {
           backgroundColor: toneStyle.backgroundColor,
           borderColor: toneStyle.borderColor,
-          opacity: pressed ? 0.78 : 1
+          opacity: isInactive ? (loading ? 0.85 : 0.5) : pressed ? 0.78 : 1
         }
       ]}
     >
-      <Ionicons name={icon} size={17} color={toneStyle.color} />
-      <Text style={[styles.label, { color: toneStyle.color }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={toneStyle.color} />
+      ) : (
+        <Ionicons name={icon} size={17} color={toneStyle.color} />
+      )}
+      <Text style={[styles.label, { color: toneStyle.color }]} numberOfLines={1}>
+        {displayLabel}
+      </Text>
     </Pressable>
   );
 }

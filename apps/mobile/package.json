@@ -6,17 +6,23 @@
   "scripts": {
     "start": "expo start",
     "tunnel": "expo start --tunnel",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean"
   },
   "dependencies": {
+    "@bacons/apple-targets": "^4.0.7",
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
     "@replydeck/shared": "0.1.0",
-    "expo": "~54.0.0",
+    "expo": "~54.0.35",
+    "expo-dev-client": "~6.0.21",
+    "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.18",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

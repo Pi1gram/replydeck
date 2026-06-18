@@ -1,6 +1,5 @@
-import { api } from "./client";
+import { api, API_BASE_URL } from "./client";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
 const USER_ID = process.env.EXPO_PUBLIC_DEV_USER_ID ?? "";
 
 export type AuthMe = {
@@ -30,4 +29,4 @@ export const disconnectOutlook = () =>
  * for traceability and for future multi-user readiness.
  */
 export const microsoftStartUrl = (): string =>
-  `${API_URL}/auth/microsoft/start-redirect?u=${encodeURIComponent(USER_ID)}`;
+  `${API_BASE_URL}/auth/microsoft/start-redirect?u=${encodeURIComponent(USER_ID)}`;

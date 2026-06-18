@@ -35,4 +35,30 @@ export class MicrosoftController {
     const top = topRaw ? Math.max(1, Math.min(50, Number(topRaw) || 10)) : 10;
     return this.service.getRecentMessages(user.id, top);
   }
+
+  /**
+   * Dev / ops endpoint: delete the user's existing Graph push subscription
+   * (if any) and immediately create a fresh one.
+   *
+   * Use this to (re)activate real-time webhook delivery without going through
+   * the full OAuth reconnect flow — handy after a tunnel URL change or when
+   * the subscription has expired.
+   *
+   * POST /outlook/resubscribe
+   * Response 200: { ok: true, subscriptionId: "..." }
+   * Response 200: { ok: false, error: "..." }  (non-fatal failure)
+   */
+  @Post("resubscribe")
+  @HttpCode(200)
+  async resubscribe(
+    @CurrentUser() user: CurrentUserPayload
+  ): Promise<{ ok: true; subscriptionId: string } | { ok: false; error: string }> {
+    try {
+      const result = await this.service.resubscribeForUser(user.id);
+      return { ok: true, subscriptionId: result.subscriptionId };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      return { ok: false, error };
+    }
+  }
 }

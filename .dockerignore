@@ -1,0 +1,39 @@
+# Dependencies — reinstalled inside the image
+**/node_modules
+
+# Compiled output — built inside the image
+**/dist
+**/*.tsbuildinfo
+
+# Git
+.git
+.github
+
+# Environment files — injected at runtime via Fly secrets
+**/.env
+**/.env.local
+**/.env.*.local
+# (keep .env.example excluded too — not needed in image)
+**/.env.example
+
+# Mobile app — not part of the API image
+apps/mobile
+
+# Editor / OS artefacts
+.vscode
+.idea
+**/.DS_Store
+**/.cache
+.expo
+
+# Logs / test artefacts
+*.log
+**/coverage
+**/__tests__
+
+# Docs / markdown (not needed in image)
+*.md
+docs
+
+# Misc root files not needed in build
+skills-*.tgz

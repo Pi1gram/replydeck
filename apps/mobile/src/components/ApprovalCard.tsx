@@ -6,6 +6,8 @@ import { ActionButton } from "./ActionButton";
 import { Pill } from "./Pill";
 import { colors } from "../theme/colors";
 
+export type CardAction = "send" | "reject" | "later" | "regenerate";
+
 type ApprovalCardProps = {
   card: EmailCard;
   onSend: () => void;
@@ -13,6 +15,7 @@ type ApprovalCardProps = {
   onReject: () => void;
   onRegenerate: () => void;
   onLater: () => void;
+  inFlightAction?: CardAction | null;
 };
 
 const riskTone: Record<RiskLevel, "green" | "amber" | "red"> = {
@@ -27,8 +30,13 @@ export function ApprovalCard({
   onEdit,
   onReject,
   onRegenerate,
-  onLater
+  onLater,
+  inFlightAction = null
 }: ApprovalCardProps) {
+  const isBusy = inFlightAction !== null;
+  const isLoading = (action: CardAction) => inFlightAction === action;
+  const isDisabledBy = (action: CardAction) => isBusy && inFlightAction !== action;
+
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -93,8 +101,17 @@ export function ApprovalCard({
           tone="primary"
           onPress={onSend}
           flex
+          loading={isLoading("send")}
+          loadingLabel="Sending…"
+          disabled={isDisabledBy("send")}
         />
-        <ActionButton label="Edit" icon="create-outline" onPress={onEdit} flex />
+        <ActionButton
+          label="Edit"
+          icon="create-outline"
+          onPress={onEdit}
+          flex
+          disabled={isBusy}
+        />
       </View>
       <View style={styles.secondaryActions}>
         <ActionButton
@@ -103,12 +120,17 @@ export function ApprovalCard({
           tone="danger"
           onPress={onReject}
           flex
+          loading={isLoading("reject")}
+          disabled={isDisabledBy("reject")}
         />
         <ActionButton
           label="Regenerate"
           icon="sparkles-outline"
           onPress={onRegenerate}
           flex
+          loading={isLoading("regenerate")}
+          loadingLabel="Drafting…"
+          disabled={isDisabledBy("regenerate")}
         />
         <ActionButton
           label="Later"
@@ -116,6 +138,8 @@ export function ApprovalCard({
           tone="quiet"
           onPress={onLater}
           flex
+          loading={isLoading("later")}
+          disabled={isDisabledBy("later")}
         />
       </View>
     </View>

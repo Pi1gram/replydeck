@@ -24,6 +24,8 @@ import { colors } from "../theme/colors";
 type SettingsScreenProps = {
   onBack: () => void;
   onSecurity: () => void;
+  onTone: () => void;
+  onSenderProfiles: () => void;
   onSyncedReturnToQueue: () => Promise<void> | void;
 };
 
@@ -35,6 +37,8 @@ type SyncFootnote = {
 export function SettingsScreen({
   onBack,
   onSecurity,
+  onTone,
+  onSenderProfiles,
   onSyncedReturnToQueue
 }: SettingsScreenProps) {
   const [me, setMe] = useState<AuthMe | null>(null);
@@ -221,6 +225,18 @@ export function SettingsScreen({
           <Text style={styles.footnoteText}>{footnote.text}</Text>
         </View>
       ) : null}
+
+      <Pressable style={styles.linkRow} onPress={onTone}>
+        <Ionicons name="sparkles-outline" size={19} color={colors.gold} />
+        <Text style={styles.linkText}>Tone & voice</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+      </Pressable>
+
+      <Pressable style={styles.linkRow} onPress={onSenderProfiles}>
+        <Ionicons name="people-outline" size={19} color={colors.gold} />
+        <Text style={styles.linkText}>Sender overrides</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+      </Pressable>
 
       <Pressable style={styles.linkRow} onPress={onSecurity}>
         <Ionicons
