@@ -50,6 +50,7 @@ export class AiContextLoader {
     toneOverride?: ToneId;
     regenerateAttempt?: number;
     previousDraft?: string;
+    availability?: string;
   }): Promise<AiDraftInput> {
     const [toneRow, senderRow, memoryRows, queryVec] = await Promise.all([
       this.prisma.toneProfile.findUnique({
@@ -102,7 +103,8 @@ export class AiContextLoader {
       memoryItems,
       toneOverride: args.toneOverride,
       regenerateAttempt: args.regenerateAttempt,
-      previousDraft: args.previousDraft
+      previousDraft: args.previousDraft,
+      availability: args.availability
     };
   }
 

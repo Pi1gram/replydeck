@@ -159,6 +159,14 @@ export function buildEmailContextMessage(args: EmailContextArgs): string {
           .join("\n")
       : "";
 
+  const availabilityBlock = input.availability
+    ? [
+        "",
+        "USER CALENDAR AVAILABILITY (only use if this email is about scheduling; propose/confirm times that avoid the busy blocks):",
+        input.availability
+      ].join("\n")
+    : "";
+
   return [
     "CURRENT EMAIL:",
     `From: ${input.currentEmail.fromName} <${input.currentEmail.fromEmail}>`,
@@ -177,6 +185,7 @@ export function buildEmailContextMessage(args: EmailContextArgs): string {
     "",
     "RELEVANT MEMORIES:",
     memoryBlock,
+    availabilityBlock,
     regenerateBlock,
     "",
     "HEURISTIC PRE-ASSESSMENT (you may revise riskLevel UP but not DOWN; you may move category B/C → A but not A → B/C):",

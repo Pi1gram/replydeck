@@ -7,7 +7,10 @@ export const MICROSOFT_SCOPES = [
   "offline_access",
   "User.Read",
   "Mail.Read",
-  "Mail.Send"
+  "Mail.Send",
+  // Phase 7.3 — read free/busy so drafts can propose/confirm meeting times.
+  // Existing users must reconnect once to grant this.
+  "Calendars.Read"
 ];
 
 @Injectable()

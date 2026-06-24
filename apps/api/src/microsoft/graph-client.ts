@@ -28,6 +28,19 @@ export interface GraphMessage {
   ccRecipients?: GraphMessageRecipient[];
 }
 
+export interface GraphDateTimeTimeZone {
+  dateTime: string;
+  timeZone?: string;
+}
+
+export interface GraphEvent {
+  id?: string;
+  showAs?: string;
+  isAllDay?: boolean;
+  start?: GraphDateTimeTimeZone;
+  end?: GraphDateTimeTimeZone;
+}
+
 export interface GraphTokenResponse {
   access_token: string;
   refresh_token?: string;
@@ -159,6 +172,30 @@ export class GraphClient {
     return res.value ?? [];
   }
 
+  /**
+   * Read the user's events between two instants (the calendar VIEW endpoint,
+   * which expands recurring series). Requests UTC so callers can treat all
+   * returned dateTimes as UTC. Only availability-relevant fields are selected —
+   * no subject, attendees, or body. Requires the Calendars.Read scope.
+   */
+  async getCalendarView(
+    accessToken: string,
+    startIso: string,
+    endIso: string
+  ): Promise<GraphEvent[]> {
+    const path =
+      `/me/calendarView?startDateTime=${encodeURIComponent(startIso)}` +
+      `&endDateTime=${encodeURIComponent(endIso)}` +
+      `&$select=start,end,showAs,isAllDay` +
+      `&$orderby=start/dateTime&$top=100`;
+    const res = await this.graphGet<{ value: GraphEvent[] }>(
+      path,
+      accessToken,
+      'outlook.timezone="UTC"'
+    );
+    return res.value ?? [];
+  }
+
   async getMessage(
     accessToken: string,
     messageId: string
@@ -201,12 +238,19 @@ export class GraphClient {
     }
   }
 
-  private async graphGet<T>(path: string, accessToken: string): Promise<T> {
+  private async graphGet<T>(
+    path: string,
+    accessToken: string,
+    extraPrefer?: string
+  ): Promise<T> {
+    const prefer = extraPrefer
+      ? `IdType="ImmutableId", ${extraPrefer}`
+      : 'IdType="ImmutableId"';
     const res = await fetch(`${GRAPH_BASE}${path}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
-        Prefer: 'IdType="ImmutableId"'
+        Prefer: prefer
       }
     });
     if (!res.ok) {

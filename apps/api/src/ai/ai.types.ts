@@ -66,6 +66,12 @@ export interface AiDraftInput {
    * meaningfully different rather than near-duplicate.
    */
   previousDraft?: string;
+  /**
+   * Compact free/busy summary of the user's calendar, injected only when the
+   * incoming email looks like a scheduling request. Lets the model propose or
+   * confirm times. Abstracted — busy blocks only, no event subjects.
+   */
+  availability?: string;
 }
 
 export interface AiDraftResult {

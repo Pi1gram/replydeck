@@ -28,9 +28,12 @@ import { EmailCardsService } from "../email-cards/email-cards.service";
 import { PushDeliveryService } from "../push/push-delivery.service";
 import {
   GraphClient,
+  GraphDateTimeTimeZone,
   GraphHttpError,
   GraphMessage
 } from "./graph-client";
+import { summarizeAvailability, BusyInterval } from "./calendar/availability";
+import { detectMeetingIntent } from "./calendar/meeting-intent";
 import { GraphSubscriptionsService } from "./graph-subscriptions.service";
 import { MicrosoftConfig } from "./microsoft.config";
 
@@ -310,6 +313,31 @@ export class MicrosoftService {
     const { accessToken } = await this.getValidAccessToken(userId);
     const messages = await this.graph.listSentMessages(accessToken, top);
     return messages.map(toSentMessage);
+  }
+
+  /**
+   * Build a compact free/busy summary of the user's calendar for the next
+   * `days` days, for use when drafting a reply to a scheduling request.
+   * Returns busy time ranges only — never event subjects. Requires the
+   * Calendars.Read scope (added Phase 7.3; existing users must reconnect).
+   */
+  async getAvailabilitySummary(userId: string, days = 7): Promise<string> {
+    const { accessToken } = await this.getValidAccessToken(userId);
+    const now = new Date();
+    const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    const events = await this.graph.getCalendarView(
+      accessToken,
+      now.toISOString(),
+      end.toISOString()
+    );
+    const busy: BusyInterval[] = events
+      .filter((e) => !e.isAllDay && isBusy(e.showAs))
+      .map((e) => ({
+        start: toUtcIso(e.start),
+        end: toUtcIso(e.end)
+      }))
+      .filter((b): b is BusyInterval => b.start !== null && b.end !== null);
+    return summarizeAvailability(busy, { now, days });
   }
 
   async getMessageThread(
@@ -671,6 +699,22 @@ export class MicrosoftService {
     aiOk: boolean;
   }> {
     try {
+      // Only pull the calendar when the email looks like a scheduling request,
+      // so we don't spend a Graph call on every draft. Best-effort: a missing
+      // Calendars.Read scope or a calendar error must not fail the draft.
+      let availability: string | undefined;
+      if (detectMeetingIntent(msg.subject, msg.bodyPreview ?? "")) {
+        try {
+          availability = await this.getAvailabilitySummary(userId, 7);
+        } catch (err) {
+          this.logger.warn(
+            `Availability lookup failed for ${msg.id} (continuing without it): ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
+      }
+
       const aiInput = await this.aiContext.loadContext({
         userId,
         currentEmail: {
@@ -680,7 +724,8 @@ export class MicrosoftService {
           receivedAt: msg.receivedAt,
           bodyPreview: msg.bodyPreview ?? "",
           hasAttachments: msg.hasAttachments
-        }
+        },
+        availability
       });
       const ai = await this.ai.generateDraft(aiInput);
       return {
@@ -812,6 +857,21 @@ function toOutlookMessage(m: GraphMessage): OutlookMessage {
     fromName,
     fromEmail
   };
+}
+
+// Treat busy/tentative/out-of-office (and unknown) as a conflict; only an
+// explicit "free"/"workingElsewhere" frees the slot.
+function isBusy(showAs?: string): boolean {
+  const s = (showAs ?? "busy").toLowerCase();
+  return s !== "free" && s !== "workingelsewhere";
+}
+
+// Graph returns naive UTC dateTimes (we request outlook.timezone="UTC"); add a
+// Z so Date.parse treats them as UTC rather than local.
+function toUtcIso(dt?: GraphDateTimeTimeZone): string | null {
+  if (!dt?.dateTime) return null;
+  const s = dt.dateTime;
+  return /([zZ]|[+-]\d{2}:\d{2})$/.test(s) ? s : `${s}Z`;
 }
 
 function toSentMessage(m: GraphMessage): SentMessage {
