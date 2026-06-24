@@ -25,12 +25,16 @@ const STATUS_MAP: Record<string, EmailCardStatus> = {
 async function main() {
   const email = process.env.DEV_USER_EMAIL ?? "demo@replydeck.local";
   const name = process.env.DEV_USER_NAME ?? "Demo User";
-  const fixedId = process.env.DEV_USER_ID || undefined;
+  // Fall back to the canonical demo id so the seed is deterministic on a
+  // fresh DB even when DEV_USER_ID is not set in the environment.
+  // All docs, tests, mobile builds, and Fly secrets reference this value.
+  const CANONICAL_DEV_USER_ID = "cmozb3wxt0000epl11g97atj3";
+  const fixedId = process.env.DEV_USER_ID || CANONICAL_DEV_USER_ID;
 
   const user = await prisma.user.upsert({
     where: { email },
     update: { name },
-    create: fixedId ? { id: fixedId, email, name } : { email, name }
+    create: { id: fixedId, email, name }
   });
 
   for (const card of fakeEmailCards) {

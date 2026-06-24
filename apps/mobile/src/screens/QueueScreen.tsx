@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApprovalCard } from "../components/ApprovalCard";
+import type { CardAction } from "../components/ApprovalCard";
 import { HomeWidgetPreview } from "../components/HomeWidgetPreview";
 import { ScreenShell } from "../components/ScreenShell";
 import { TopBar } from "../components/TopBar";
@@ -20,6 +21,7 @@ type QueueScreenProps = {
   onLater: (id: string) => void;
   onOpenLater: () => void;
   onOpenSettings: () => void;
+  inFlightAction?: CardAction | null;
 };
 
 export function QueueScreen({
@@ -33,7 +35,8 @@ export function QueueScreen({
   onRegenerate,
   onLater,
   onOpenLater,
-  onOpenSettings
+  onOpenSettings,
+  inFlightAction = null
 }: QueueScreenProps) {
   const activeCard = cards[0];
 
@@ -67,6 +70,7 @@ export function QueueScreen({
           onReject={() => onReject(activeCard.id)}
           onRegenerate={() => onRegenerate(activeCard.id)}
           onLater={() => onLater(activeCard.id)}
+          inFlightAction={inFlightAction}
         />
       ) : (
         <View style={styles.emptyState}>

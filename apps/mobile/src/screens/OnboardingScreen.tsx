@@ -23,14 +23,14 @@ export function OnboardingScreen({ onContinue }: OnboardingScreenProps) {
         </Text>
 
         <View style={styles.steps}>
-          <Step icon="sparkles-outline" text="AI drafts structured reply cards" />
-          <Step icon="finger-print-outline" text="Human approval is always required" />
-          <Step icon="shield-checkmark-outline" text="Risky emails require app review" />
+          <Step icon="sparkles-outline" text="AI drafts every reply in your tone" />
+          <Step icon="finger-print-outline" text="Approve, edit, or reject with a tap" />
+          <Step icon="shield-checkmark-outline" text="Risky emails always wait for review" />
         </View>
       </View>
 
       <Pressable style={styles.button} onPress={onContinue}>
-        <Text style={styles.buttonText}>Start demo</Text>
+        <Text style={styles.buttonText}>Get started</Text>
         <Ionicons name="arrow-forward" size={18} color={colors.background} />
       </Pressable>
     </ScreenShell>

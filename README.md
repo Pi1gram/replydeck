@@ -269,6 +269,70 @@ See **[MICROSOFT_SETUP.md](MICROSOFT_SETUP.md)** for the end-to-end setup
 and smoke-test walkthrough (Azure App Registration, scopes, env vars,
 connect → sync → approve → confirm sent).
 
+## Phase 4 — Real AI drafting + tone + category routing
+
+Phase 4 replaces the canned regenerate text with real Claude Sonnet 4.6
+drafting via the official `@anthropic-ai/sdk`. Key pieces:
+
+- **`apps/api/src/ai/`** — provider-agnostic NestJS module. `MockProvider`
+  (deterministic, used in tests) and `AnthropicProvider` (real Claude
+  Sonnet 4.6 with two-layer prompt caching — shared system prompt + per-user
+  tone block — and structured JSON output via `zodOutputFormat`).
+- **Risk + category floors** — deterministic heuristics in
+  `ai/classifier/` (risk keywords, attachments, sender pinning) run BEFORE
+  the model. The model can only *raise* risk and route to category A; never
+  the other way around. This is the trust spine — see
+  [SECURITY_PRIVACY.md](SECURITY_PRIVACY.md).
+- **Tone profiles** — three presets (Formal / Business / Friends) plus
+  per-sender overrides. Stored in Prisma, read by `AiContextLoader` and
+  injected into the model's system field for caching.
+- **Real send path** — `MicrosoftService.sendReply` now appends "Sent with
+  ReplyDeck AI" as an unobtrusive outbound footer (organic discovery, per
+  Guy memo; disable via `REPLYDECK_FOOTER_DISABLED=true`).
+
+### Required env vars
+
+```
+ANTHROPIC_API_KEY=sk-ant-...      # from console.anthropic.com
+AI_PROVIDER=anthropic              # or "mock" for dev/test
+# ANTHROPIC_MODEL=claude-sonnet-4-6 (default)
+# ANTHROPIC_EFFORT=medium           (low | medium | high)
+```
+
+### Smoke test against the real Anthropic API
+
+```bash
+npm run ai:auth-check -w @replydeck/api   # one-shot auth verification
+npm run ai:smoke -w @replydeck/api        # 3-draft smoke run (~$0.03)
+```
+
+Costs ~$0.02–0.03 per draft. Cache hits on the second and third drafts
+when the tone profile + system prompt prefix is reused.
+
+## Phase 5 — Native build pipeline
+
+Phase 5 moves the mobile app off Expo Go onto a real native build pipeline
+so we can add iOS lock-screen widgets and Android Glance widgets in
+Phase 6 (the "more than an app" feature from Guy's May 2026 memo).
+
+What's already in the repo:
+
+- `apps/mobile/app.json` — bundle ID `com.replydeck.app` (iOS + Android),
+  URL scheme `replydeck`, App Group `group.com.replydeck.shared`
+  entitlement, `expo-dev-client` plugin enabled.
+- `apps/mobile/eas.json` — three EAS Build profiles (development /
+  preview / production) with per-profile env vars.
+- `apps/mobile/src/api/client.ts` — fails fast if `EXPO_PUBLIC_API_URL`
+  is missing in production builds (no more silent `localhost`).
+- `.github/workflows/ci.yml` — runs typecheck + e2e on every PR.
+- **[PHASE_5_MANUAL_SETUP.md](PHASE_5_MANUAL_SETUP.md)** — Apple Developer
+  / Play Console / Expo / Firebase signup checklist with costs, exact
+  commands, and day-by-day order of operations.
+
+`expo prebuild` has **not** been run yet — that's the next step once the
+manual accounts are set up. Until then, the existing Expo Go dev loop
+still works.
+
 ### New env vars (`apps/api/.env`)
 
 ```

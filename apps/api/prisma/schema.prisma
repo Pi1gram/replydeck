@@ -32,6 +32,45 @@ enum FeedbackAction {
   REJECTED
   REGENERATED
   SAVED_LATER
+  AUTO_SENT
+}
+
+// Phase 4 routing (Guy memo, May 2026).
+//   A — important personal email. Always returned for review.
+//   B — routine, draft-and-approve.
+//   C — predictable, low-stakes; eligible for auto-send when user has opted in.
+enum Category {
+  A
+  B
+  C
+}
+
+enum ToneId {
+  FORMAL
+  BUSINESS
+  FRIENDS
+}
+
+enum MemoryScope {
+  USER
+  SENDER
+  THREAD
+  COMPANY
+}
+
+enum MemorySourceType {
+  APPROVED_REPLY
+  EDITED_REPLY
+  REJECTED_REPLY
+  SENT_EMAIL
+  THREAD_SUMMARY
+  SENDER_PROFILE
+}
+
+enum SensitivityLevel {
+  LOW
+  MEDIUM
+  HIGH
 }
 
 model User {
@@ -41,10 +80,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  emailCards        EmailCard[]
-  feedbackEvents    FeedbackEvent[]
-  auditLogs         AuditLog[]
-  connectedAccounts ConnectedEmailAccount[]
+  // Phase 7 — consent for learning the user's voice from their SENT mail.
+  // Learning is gated on this being true; revoking it stops future learning
+  // (derived profiles are abstracted, so revocation does not require purging
+  // raw content — there is none stored).
+  sentMailLearningConsent   Boolean   @default(false)
+  sentMailLearningConsentAt DateTime?
+  // Stamp of the last successful sent-mail learning pass.
+  sentMailLearnedAt         DateTime?
+
+  emailCards         EmailCard[]
+  feedbackEvents     FeedbackEvent[]
+  auditLogs          AuditLog[]
+  connectedAccounts  ConnectedEmailAccount[]
+  toneProfile        ToneProfile?
+  senderProfiles     SenderProfile[]
+  memoryItems        MemoryItem[]
+  pushTokens         PushToken[]
+  graphSubscriptions GraphSubscription[]
 }
 
 model ConnectedEmailAccount {
@@ -90,6 +143,16 @@ model EmailCard {
   // attachments in this signal — treat as best-effort.
   hasAttachments    Boolean         @default(false)
   status            EmailCardStatus @default(PENDING)
+  // Phase 4 — routing decision at draft time. Defaults to B (drafted and
+  // awaiting approval). A is never auto-sendable; C is eligible when the
+  // user has opted into auto-send for this sender/domain.
+  category          Category        @default(B)
+  // Phase 4 — which tone the draft was generated in. Null for pre-Phase-4
+  // cards that pre-date this column.
+  toneApplied       ToneId?
+  // Phase 4 — version stamp of the system prompt used (see system-prompt.ts
+  // PROMPT_VERSION). Lets us detect drift after prompt upgrades.
+  aiPromptVersion   String?
   sentAt            DateTime?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -130,4 +193,125 @@ model AuditLog {
   emailCard EmailCard? @relation(fields: [emailCardId], references: [id])
 
   @@index([userId])
+}
+
+// Phase 4 — per-user voice the AI applies when drafting.
+//
+// Three tone presets (FORMAL/BUSINESS/FRIENDS, Guy memo) plus the user-edited
+// fields below that override the preset defaults. The full preset values
+// live in ai/prompts/build-user-prompt.ts; this table is the user's local
+// overrides + tone choice.
+model ToneProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  defaultTone        ToneId   @default(BUSINESS)
+  averageReplyLength String?
+  preferredGreetings String[] @default([])
+  preferredSignOffs  String[] @default([])
+  avoidPhrases       String[] @default([])
+  styleNotes         String[] @default([])
+  autoSendEnabled    Boolean  @default(false)
+  // Phase 7 — provenance of automatic learning from sent mail. Lets the API
+  // distinguish learned defaults from explicit user edits and show "last
+  // learned" in settings.
+  learnedFromSentAt  DateTime?
+  learnedSampleSize  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Phase 4 — per-(user, sender) profile for relationship + override.
+//
+// `pinAlwaysReview = true` forces Category A regardless of content. This is
+// the "always return to me, no matter what" toggle from the memo's day-1
+// list.
+model SenderProfile {
+  id               String   @id @default(cuid())
+  userId           String
+  senderEmail      String
+  senderDomain     String?
+  relationship     String?
+  formality        String?
+  usualReplyLength String?
+  preferredTone    ToneId?
+  pinAlwaysReview  Boolean  @default(false)
+  autoSendAllowed  Boolean  @default(false)
+  autoSendDenied   Boolean  @default(false)
+  notes            String[] @default([])
+  // Phase 7 — relationship signals learned from how often / recently the user
+  // writes to this correspondent. Counts only; no message content is stored.
+  messageCount      Int       @default(0)
+  lastContactedAt   DateTime?
+  learnedFromSentAt DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, senderEmail])
+  @@index([userId, senderDomain])
+}
+
+// Phase 4 — memory items the AI retrieves before drafting.
+//
+// `content` should never include raw email body. Store distilled facts /
+// style examples only. `expiresAt` enables time-bounded memory (e.g. a
+// thread summary that's only relevant for 30 days).
+model MemoryItem {
+  id          String           @id @default(cuid())
+  userId      String
+  scope       MemoryScope
+  sourceType  MemorySourceType
+  content     String
+  sensitivity SensitivityLevel @default(LOW)
+  /// Optional links to scope-specific entities for retrieval filtering.
+  senderEmail String?
+  threadId    String?
+  expiresAt   DateTime?
+  /// Phase 7.2 — semantic-retrieval vector + the model that produced it.
+  /// Stored as Float[] and ranked app-side over the per-user candidate set;
+  /// swaps to a pgvector index at scale (docs/KNOWLEDGE_BASE_RESEARCH.md).
+  embedding      Float[]  @default([])
+  embeddingModel String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, scope])
+  @@index([userId, senderEmail])
+}
+
+enum PushPlatform {
+  IOS
+  ANDROID
+}
+
+model PushToken {
+  id          String       @id @default(cuid())
+  userId      String
+  platform    PushPlatform
+  token       String       @unique
+  createdAt   DateTime     @default(now())
+  lastSeenAt  DateTime     @default(now())
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model GraphSubscription {
+  id                   String   @id @default(cuid())
+  userId               String
+  subscriptionId       String   @unique
+  resource             String
+  expirationDateTime   DateTime
+  clientState          String
+  renewedAt            DateTime?
+  createdAt            DateTime @default(now())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expirationDateTime])
 }

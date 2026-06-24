@@ -1,0 +1,179 @@
+# ReplyDeck CI
+#
+# Lints, typechecks, and runs the API e2e suite against a service Postgres.
+# No deploy step — CI is currently "does it build green".
+#
+# Triggers:
+#   * pull_request on any branch
+#   * push to main
+#
+# Two parallel jobs: `api` and `mobile`.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel in-flight runs on the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # API — NestJS + Prisma + Postgres
+  # ---------------------------------------------------------------------------
+  api:
+    name: api (typecheck + e2e)
+    runs-on: ubuntu-latest
+
+    # GitHub-hosted Postgres sidecar. Replaces the local docker-compose
+    # Postgres that the dev workflow uses. Port-mapped to 5433 so the test
+    # DATABASE_URL matches what apps/api/test/jest-env.ts expects out of the
+    # box.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: replydeck
+          POSTGRES_PASSWORD: replydeck
+          POSTGRES_DB: replydeck
+        ports:
+          - 5433:5432
+        # Wait until Postgres is actually accepting connections before the
+        # job's steps start running.
+        options: >-
+          --health-cmd "pg_isready -U replydeck -d replydeck"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # Canonical test env — kept in sync with apps/api/test/jest-env.ts.
+      # NOTE: this points at the `replydeck_test` DB, which must be created
+      # before prisma migrate deploy runs (see step below).
+      DATABASE_URL: postgresql://replydeck:replydeck@localhost:5433/replydeck_test?schema=public
+      TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      DEV_USER_ID: "cmozb3wxt0000epl11g97atj3"
+      AI_PROVIDER: mock
+      # Microsoft env vars only need to be non-empty for OAuth-config
+      # validation; the Graph client itself is mocked in tests.
+      MICROSOFT_CLIENT_ID: test-client-id
+      MICROSOFT_CLIENT_SECRET: test-client-secret
+      MICROSOFT_TENANT_ID: common
+      MICROSOFT_REDIRECT_URI: http://localhost:4000/auth/microsoft/callback
+      APP_REDIRECT_AFTER_AUTH: http://localhost:4000/auth/connected
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          # Built-in npm cache, keyed on package-lock.json.
+          cache: npm
+
+      # Belt-and-braces cache of ~/.npm in addition to setup-node's cache,
+      # explicitly keyed on the root lockfile. setup-node already does this
+      # for us, but pin it so cache behavior is obvious and stable.
+      - name: Cache ~/.npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies (workspaces)
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run prisma:generate -w @replydeck/api
+
+      - name: Typecheck (whole monorepo)
+        run: npm run typecheck
+
+      # Create the test DB that test/global-setup.ts would otherwise create
+      # via `docker exec`. On GitHub-hosted runners there is no compose-
+      # managed container to exec into, so we provision the DB directly
+      # against the service Postgres on localhost:5433.
+      - name: Create test database
+        run: |
+          PGPASSWORD=replydeck psql \
+            -h localhost -p 5433 -U replydeck -d replydeck \
+            -v ON_ERROR_STOP=0 \
+            -c "CREATE DATABASE replydeck_test;" || true
+
+      - name: Prisma migrate (deploy)
+        # `migrate deploy` is the CI-safe variant: it applies committed
+        # migrations and never prompts, never generates new ones. The
+        # `--name ci_check` flag is intentionally omitted because it only
+        # applies to `migrate dev`; the task brief mentions it but `deploy`
+        # rejects unknown flags.
+        run: npm run prisma:migrate -w @replydeck/api -- deploy
+
+      - name: API e2e tests
+        # global-setup.ts branches on `process.env.CI === "true"` and uses
+        # the `pg` client to provision the test DB when running here. The
+        # "Create test database" step above pre-creates it; the in-test
+        # creation is idempotent (CREATE DATABASE errors on "already exists"
+        # are downgraded to a warning).
+        run: npm run test:e2e -w @replydeck/api
+
+  # ---------------------------------------------------------------------------
+  # Mobile — Expo / React Native
+  # ---------------------------------------------------------------------------
+  mobile:
+    name: mobile (typecheck)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Cache ~/.npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies (workspaces)
+        run: npm ci
+
+      - name: Typecheck (mobile workspace)
+        run: npm run typecheck -w @replydeck/mobile
+
+      # -----------------------------------------------------------------------
+      # EAS preview build — DISABLED until secrets are configured.
+      #
+      # To enable:
+      #   1. Generate an Expo access token: https://expo.dev/accounts/[account]/settings/access-tokens
+      #   2. Add it to GitHub: Settings -> Secrets and variables -> Actions
+      #        - Name:  EXPO_TOKEN
+      #        - Value: <token from step 1>
+      #   3. Ensure apps/mobile/eas.json defines a `preview` profile.
+      #   4. Uncomment the two steps below.
+      # -----------------------------------------------------------------------
+      # - name: Setup EAS
+      #   uses: expo/expo-github-action@v8
+      #   with:
+      #     eas-version: latest
+      #     token: ${{ secrets.EXPO_TOKEN }}
+      #
+      # - name: EAS preview build
+      #   if: github.event_name == 'pull_request'
+      #   working-directory: apps/mobile
+      #   run: eas build --platform all --profile preview --non-interactive

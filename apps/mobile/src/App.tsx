@@ -1,10 +1,11 @@
 import type { EmailCard } from "@replydeck/shared";
+import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
+  Linking,
   StyleSheet,
   Text,
   View
@@ -19,13 +20,24 @@ import {
   regenerateCard as apiRegenerateCard,
   rejectCard as apiRejectCard
 } from "./api/emailCards";
+import { loadSession } from "./api/session";
+import { ErrorBanner } from "./components/ErrorBanner";
+import { LoginScreen } from "./screens/LoginScreen";
+import { usePushRegistration } from "./hooks/usePushRegistration";
+import { registerNotificationCategories } from "./notifications/categories";
+import {
+  configureForegroundHandler,
+  handleNotificationAction
+} from "./notifications/handler";
 import { ConnectOutlookScreen } from "./screens/ConnectOutlookScreen";
 import { EditDraftScreen } from "./screens/EditDraftScreen";
 import { LaterScreen } from "./screens/LaterScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { QueueScreen } from "./screens/QueueScreen";
 import { SecurityScreen } from "./screens/SecurityScreen";
+import { SenderProfilesScreen } from "./screens/SenderProfilesScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { ToneSettingsScreen } from "./screens/ToneSettingsScreen";
 import { colors } from "./theme/colors";
 
 type Screen =
@@ -35,25 +47,50 @@ type Screen =
   | { name: "edit"; card: EmailCard }
   | { name: "later" }
   | { name: "settings" }
-  | { name: "security" };
+  | { name: "security" }
+  | { name: "tone" }
+  | { name: "senderProfiles" };
 
 type Counts = {
   sent: number;
   rejected: number;
 };
 
+type InFlightAction =
+  | "send"
+  | "reject"
+  | "later"
+  | "regenerate"
+  | "save"
+  | null;
+
 export default function App() {
+  // Register native APNs/FCM push token on app start. Hook is fully guarded
+  // against Expo Go / permission denial / unsupported runtimes — it will
+  // never throw, so wrapping in try/catch at the call site isn't necessary,
+  // but the hook itself internally try/catches every step.
+  usePushRegistration();
+
+  // Gate the app on a session. `authChecked` flips once we've read storage;
+  // `signedIn` decides login-screen vs the normal flow. A single build serves
+  // many users — each logs in by email (see api/session.ts).
+  const [authChecked, setAuthChecked] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
   const [screen, setScreen] = useState<Screen>({ name: "onboarding" });
   const [pendingCards, setPendingCards] = useState<EmailCard[]>([]);
   const [laterCards, setLaterCards] = useState<EmailCard[]>([]);
   const [counts, setCounts] = useState<Counts>({ sent: 0, rejected: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inFlightAction, setInFlightAction] = useState<InFlightAction>(null);
 
   const reportError = useCallback((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     setError(message);
   }, []);
+
+  const dismissError = useCallback(() => setError(null), []);
 
   const refreshAll = useCallback(async () => {
     try {
@@ -73,7 +110,22 @@ export default function App() {
     }
   }, [reportError]);
 
+  // Restore the stored session once on launch before anything calls the API.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const id = await loadSession();
+      if (cancelled) return;
+      setSignedIn(!!id);
+      setAuthChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!signedIn) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -90,33 +142,104 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, [refreshAll, signedIn]);
+
+  // Deep links from the home-screen / lock-screen widget land here. Any
+  // replydeck:// URL (the widget uses replydeck://queue) jumps straight to the
+  // triage queue, skipping onboarding. Cold-launch + foreground both handled.
+  useEffect(() => {
+    function handleUrl(url: string | null) {
+      if (url && url.startsWith("replydeck://")) {
+        setScreen({ name: "queue" });
+        // Pull the freshest cards so the queue reflects what the widget showed.
+        void refreshAll().catch(() => {});
+      }
+    }
+    Linking.getInitialURL()
+      .then(handleUrl)
+      .catch(() => {});
+    const sub = Linking.addEventListener("url", (event) =>
+      handleUrl(event.url)
+    );
+    return () => sub.remove();
   }, [refreshAll]);
 
-  async function sendCard(id: string) {
+  // Wire up actionable push notifications.
+  // configureForegroundHandler must be called before any notification can
+  // arrive; registerNotificationCategories registers the iOS action button
+  // sets that back-end pushes reference via categoryId.
+  useEffect(() => {
+    configureForegroundHandler();
+    void registerNotificationCategories();
+
+    const sub = Notifications.addNotificationResponseReceivedListener(
+      async (response) => {
+        const action = response.actionIdentifier;
+        const data = response.notification.request.content.data;
+        const cardId =
+          typeof data?.cardId === "string" ? data.cardId : undefined;
+
+        if (!cardId) return;
+
+        // OPEN (explicit button) or DEFAULT (user tapped the notification
+        // body itself) — both should bring the queue into view.
+        if (
+          action === "OPEN" ||
+          action === Notifications.DEFAULT_ACTION_IDENTIFIER
+        ) {
+          setScreen({ name: "queue" });
+          void refreshAll().catch(() => {});
+          return;
+        }
+
+        // Background actions: SEND or REGENERATE — no app foreground needed.
+        try {
+          await handleNotificationAction(action, cardId);
+          await refreshAll();
+        } catch {
+          // Errors are non-fatal; the queue will still refresh on next open.
+        }
+      }
+    );
+
+    return () => sub.remove();
+  }, [refreshAll]);
+
+  async function runAction(
+    action: Exclude<InFlightAction, null>,
+    work: () => Promise<void>
+  ) {
+    if (inFlightAction !== null) return;
+    setInFlightAction(action);
+    setError(null);
     try {
-      await apiApproveCard(id);
-      await refreshAll();
+      await work();
     } catch (err) {
       reportError(err);
+    } finally {
+      setInFlightAction(null);
     }
+  }
+
+  async function sendCard(id: string) {
+    await runAction("send", async () => {
+      await apiApproveCard(id);
+      await refreshAll();
+    });
   }
 
   async function rejectCard(id: string) {
-    try {
+    await runAction("reject", async () => {
       await apiRejectCard(id);
       await refreshAll();
-    } catch (err) {
-      reportError(err);
-    }
+    });
   }
 
   async function laterCard(id: string) {
-    try {
+    await runAction("later", async () => {
       await apiLaterCard(id);
       await refreshAll();
-    } catch (err) {
-      reportError(err);
-    }
+    });
   }
 
   function restoreCard(_id: string) {
@@ -127,46 +250,62 @@ export default function App() {
   }
 
   async function regenerateCard(id: string) {
-    try {
+    await runAction("regenerate", async () => {
       await apiRegenerateCard(id);
       await refreshAll();
-    } catch (err) {
-      reportError(err);
-    }
+    });
   }
 
   async function saveEdit(id: string, draftReply: string) {
-    try {
+    await runAction("save", async () => {
       await apiEditReply(id, draftReply);
       await refreshAll();
       setScreen({ name: "queue" });
-    } catch (err) {
-      reportError(err);
-    }
+    });
   }
 
-  const showQueueChrome = useMemo(
-    () => screen.name === "queue",
-    [screen.name]
+  const showErrorBanner = useMemo(
+    () => error !== null && (screen.name === "queue" || screen.name === "edit"),
+    [error, screen.name]
   );
+
+  const cardInFlight = useMemo<
+    "send" | "reject" | "later" | "regenerate" | null
+  >(() => {
+    if (
+      inFlightAction === "send" ||
+      inFlightAction === "reject" ||
+      inFlightAction === "later" ||
+      inFlightAction === "regenerate"
+    ) {
+      return inFlightAction;
+    }
+    return null;
+  }, [inFlightAction]);
 
   return (
     <SafeAreaProvider style={styles.provider}>
       <StatusBar style="light" />
-      {error && showQueueChrome ? (
-        <Pressable
-          style={styles.errorBanner}
-          onPress={() => setError(null)}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss error"
-        >
-          <Text style={styles.errorText} numberOfLines={2}>
-            {error} (tap to dismiss)
-          </Text>
-        </Pressable>
+      {showErrorBanner && error ? (
+        <ErrorBanner message={error} onDismiss={dismissError} />
       ) : null}
 
-      {screen.name === "onboarding" ? (
+      {!authChecked ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color={colors.gold} />
+        </View>
+      ) : null}
+
+      {authChecked && !signedIn ? (
+        <LoginScreen
+          onLoggedIn={() => {
+            setSignedIn(true);
+            setScreen({ name: "onboarding" });
+          }}
+        />
+      ) : null}
+
+      {authChecked && signedIn && screen.name === "onboarding" ? (
         <OnboardingScreen onContinue={() => setScreen({ name: "connect" })} />
       ) : null}
       {screen.name === "connect" ? (
@@ -191,6 +330,7 @@ export default function App() {
             onLater={laterCard}
             onOpenLater={() => setScreen({ name: "later" })}
             onOpenSettings={() => setScreen({ name: "settings" })}
+            inFlightAction={cardInFlight}
           />
         )
       ) : null}
@@ -199,6 +339,7 @@ export default function App() {
           card={screen.card}
           onCancel={() => setScreen({ name: "queue" })}
           onSave={saveEdit}
+          saving={inFlightAction === "save"}
         />
       ) : null}
       {screen.name === "later" ? (
@@ -212,6 +353,8 @@ export default function App() {
         <SettingsScreen
           onBack={() => setScreen({ name: "queue" })}
           onSecurity={() => setScreen({ name: "security" })}
+          onTone={() => setScreen({ name: "tone" })}
+          onSenderProfiles={() => setScreen({ name: "senderProfiles" })}
           onSyncedReturnToQueue={async () => {
             await refreshAll();
             setScreen({ name: "queue" });
@@ -220,6 +363,15 @@ export default function App() {
       ) : null}
       {screen.name === "security" ? (
         <SecurityScreen onBack={() => setScreen({ name: "settings" })} />
+      ) : null}
+      {screen.name === "tone" ? (
+        <ToneSettingsScreen
+          onBack={() => setScreen({ name: "settings" })}
+          onSaved={() => setScreen({ name: "settings" })}
+        />
+      ) : null}
+      {screen.name === "senderProfiles" ? (
+        <SenderProfilesScreen onBack={() => setScreen({ name: "settings" })} />
       ) : null}
     </SafeAreaProvider>
   );
@@ -239,18 +391,5 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.textMuted,
     fontSize: 15
-  },
-  errorBanner: {
-    backgroundColor: colors.redSoft,
-    borderBottomColor: colors.red,
-    borderBottomWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    zIndex: 10
-  },
-  errorText: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "600"
   }
 });

@@ -1,0 +1,70 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote",
+    "requireCommit": false
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "ios": {
+        "simulator": true,
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.10:4000",
+        "EXPO_PUBLIC_DEV_USER_ID": "cmozb3wxt0000epl11g97atj3"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "ios": {
+        "simulator": false,
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk",
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://replydeck-api.fly.dev"
+      }
+    },
+    "testflight": {
+      "extends": "preview",
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://replydeck-api.fly.dev"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "resourceClass": "medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.replydeck.app"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}

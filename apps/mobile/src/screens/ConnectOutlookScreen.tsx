@@ -1,6 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View
+} from "react-native";
 
+import { microsoftStartUrl } from "../api/outlook";
 import { ScreenShell } from "../components/ScreenShell";
 import { colors } from "../theme/colors";
 
@@ -8,7 +18,33 @@ type ConnectOutlookScreenProps = {
   onContinue: () => void;
 };
 
-export function ConnectOutlookScreen({ onContinue }: ConnectOutlookScreenProps) {
+export function ConnectOutlookScreen({
+  onContinue
+}: ConnectOutlookScreenProps) {
+  const [connecting, setConnecting] = useState(false);
+
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      const url = microsoftStartUrl();
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert("Open this URL on your laptop", url);
+        return;
+      }
+      await Linking.openURL(url);
+      Alert.alert(
+        "Finish signing in",
+        "Complete Microsoft sign-in in your browser, then return to ReplyDeck and tap Continue. You can sync your inbox from Settings."
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      Alert.alert("Couldn't open Microsoft sign-in", message);
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   return (
     <ScreenShell scroll={false}>
       <View style={styles.content}>
@@ -16,22 +52,39 @@ export function ConnectOutlookScreen({ onContinue }: ConnectOutlookScreenProps) 
           <View style={styles.microsoftTile}>
             <Ionicons name="logo-microsoft" size={30} color={colors.blue} />
           </View>
-          <Text style={styles.title}>Outlook connection</Text>
+          <Text style={styles.title}>Connect your Outlook</Text>
           <Text style={styles.body}>
-            Phase 1 uses fake cards only. The real product will use Microsoft
-            OAuth, encrypted tokens, and no email passwords.
+            ReplyDeck signs in through Microsoft OAuth — no passwords ever
+            touch us. Tokens are encrypted at rest and you can disconnect
+            from Settings any time.
           </Text>
           <View style={styles.rules}>
-            <Rule text="No autonomous sending" />
-            <Rule text="No attachments stored in MVP" />
-            <Rule text="Disconnect and delete data controls planned" />
+            <Rule text="Encrypted tokens · no password ever" />
+            <Rule text="Nothing sends without your tap" />
+            <Rule text="Disconnect + delete data any time" />
           </View>
         </View>
       </View>
 
-      <Pressable style={styles.button} onPress={onContinue}>
-        <Text style={styles.buttonText}>Use fake queue</Text>
-        <Ionicons name="albums-outline" size={18} color={colors.background} />
+      <Pressable
+        style={[styles.button, connecting && styles.buttonDisabled]}
+        onPress={handleConnect}
+        disabled={connecting}
+        accessibilityRole="button"
+        accessibilityLabel="Connect Outlook"
+      >
+        {connecting ? (
+          <ActivityIndicator color={colors.background} />
+        ) : (
+          <Ionicons name="logo-microsoft" size={18} color={colors.background} />
+        )}
+        <Text style={styles.buttonText}>
+          {connecting ? "Opening Microsoft…" : "Connect Outlook"}
+        </Text>
+      </Pressable>
+
+      <Pressable style={styles.secondary} onPress={onContinue}>
+        <Text style={styles.secondaryText}>Skip — explore sample queue</Text>
       </Pressable>
     </ScreenShell>
   );
@@ -103,9 +156,22 @@ const styles = StyleSheet.create({
     height: 56,
     justifyContent: "center"
   },
+  buttonDisabled: {
+    opacity: 0.6
+  },
   buttonText: {
     color: colors.background,
     fontSize: 16,
     fontWeight: "900"
+  },
+  secondary: {
+    alignItems: "center",
+    marginTop: 14,
+    paddingVertical: 10
+  },
+  secondaryText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700"
   }
 });

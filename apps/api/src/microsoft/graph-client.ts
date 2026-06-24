@@ -21,9 +21,24 @@ export interface GraphMessage {
   subject?: string;
   bodyPreview?: string;
   receivedDateTime?: string;
+  sentDateTime?: string;
   hasAttachments?: boolean;
   from?: GraphMessageRecipient;
   toRecipients?: GraphMessageRecipient[];
+  ccRecipients?: GraphMessageRecipient[];
+}
+
+export interface GraphDateTimeTimeZone {
+  dateTime: string;
+  timeZone?: string;
+}
+
+export interface GraphEvent {
+  id?: string;
+  showAs?: string;
+  isAllDay?: boolean;
+  start?: GraphDateTimeTimeZone;
+  end?: GraphDateTimeTimeZone;
 }
 
 export interface GraphTokenResponse {
@@ -116,6 +131,31 @@ export class GraphClient {
     return res.value ?? [];
   }
 
+  /**
+   * Read the user's most-recent SENT messages (the SentItems well-known
+   * folder). Used by Phase 7 to learn the user's writing voice. We only
+   * select bodyPreview (not the full body) so we never pull more content than
+   * the abstracted-learning pipeline needs.
+   *
+   * Requires the existing Mail.Read scope — SentItems is covered by it; no
+   * new consent prompt is needed.
+   */
+  async listSentMessages(
+    accessToken: string,
+    top: number
+  ): Promise<GraphMessage[]> {
+    const safeTop = Math.max(1, Math.min(200, top));
+    const path =
+      `/me/mailFolders/sentitems/messages?$top=${safeTop}` +
+      `&$orderby=sentDateTime%20desc` +
+      `&$select=id,conversationId,internetMessageId,subject,bodyPreview,sentDateTime,hasAttachments,from,toRecipients,ccRecipients`;
+    const res = await this.graphGet<{ value: GraphMessage[] }>(
+      path,
+      accessToken
+    );
+    return res.value ?? [];
+  }
+
   async listMessagesByConversation(
     accessToken: string,
     conversationId: string
@@ -128,6 +168,30 @@ export class GraphClient {
     const res = await this.graphGet<{ value: GraphMessage[] }>(
       path,
       accessToken
+    );
+    return res.value ?? [];
+  }
+
+  /**
+   * Read the user's events between two instants (the calendar VIEW endpoint,
+   * which expands recurring series). Requests UTC so callers can treat all
+   * returned dateTimes as UTC. Only availability-relevant fields are selected —
+   * no subject, attendees, or body. Requires the Calendars.Read scope.
+   */
+  async getCalendarView(
+    accessToken: string,
+    startIso: string,
+    endIso: string
+  ): Promise<GraphEvent[]> {
+    const path =
+      `/me/calendarView?startDateTime=${encodeURIComponent(startIso)}` +
+      `&endDateTime=${encodeURIComponent(endIso)}` +
+      `&$select=start,end,showAs,isAllDay` +
+      `&$orderby=start/dateTime&$top=100`;
+    const res = await this.graphGet<{ value: GraphEvent[] }>(
+      path,
+      accessToken,
+      'outlook.timezone="UTC"'
     );
     return res.value ?? [];
   }
@@ -174,12 +238,19 @@ export class GraphClient {
     }
   }
 
-  private async graphGet<T>(path: string, accessToken: string): Promise<T> {
+  private async graphGet<T>(
+    path: string,
+    accessToken: string,
+    extraPrefer?: string
+  ): Promise<T> {
+    const prefer = extraPrefer
+      ? `IdType="ImmutableId", ${extraPrefer}`
+      : 'IdType="ImmutableId"';
     const res = await fetch(`${GRAPH_BASE}${path}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
-        Prefer: 'IdType="ImmutableId"'
+        Prefer: prefer
       }
     });
     if (!res.ok) {
