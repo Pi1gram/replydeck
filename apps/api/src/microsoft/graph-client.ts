@@ -21,9 +21,11 @@ export interface GraphMessage {
   subject?: string;
   bodyPreview?: string;
   receivedDateTime?: string;
+  sentDateTime?: string;
   hasAttachments?: boolean;
   from?: GraphMessageRecipient;
   toRecipients?: GraphMessageRecipient[];
+  ccRecipients?: GraphMessageRecipient[];
 }
 
 export interface GraphTokenResponse {
@@ -109,6 +111,31 @@ export class GraphClient {
       `/me/messages?$top=${safeTop}` +
       `&$orderby=receivedDateTime%20desc` +
       `&$select=id,conversationId,internetMessageId,subject,bodyPreview,receivedDateTime,hasAttachments,from,toRecipients`;
+    const res = await this.graphGet<{ value: GraphMessage[] }>(
+      path,
+      accessToken
+    );
+    return res.value ?? [];
+  }
+
+  /**
+   * Read the user's most-recent SENT messages (the SentItems well-known
+   * folder). Used by Phase 7 to learn the user's writing voice. We only
+   * select bodyPreview (not the full body) so we never pull more content than
+   * the abstracted-learning pipeline needs.
+   *
+   * Requires the existing Mail.Read scope — SentItems is covered by it; no
+   * new consent prompt is needed.
+   */
+  async listSentMessages(
+    accessToken: string,
+    top: number
+  ): Promise<GraphMessage[]> {
+    const safeTop = Math.max(1, Math.min(200, top));
+    const path =
+      `/me/mailFolders/sentitems/messages?$top=${safeTop}` +
+      `&$orderby=sentDateTime%20desc` +
+      `&$select=id,conversationId,internetMessageId,subject,bodyPreview,sentDateTime,hasAttachments,from,toRecipients,ccRecipients`;
     const res = await this.graphGet<{ value: GraphMessage[] }>(
       path,
       accessToken

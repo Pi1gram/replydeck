@@ -14,6 +14,7 @@ import { AuthModule } from "./auth/auth.module";
 import { AiModule } from "./ai/ai.module";
 import { SettingsModule } from "./settings/settings.module";
 import { LearningModule } from "./learning/learning.module";
+import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { PushModule } from "./push/push.module";
 import { HealthModule } from "./health/health.module";
 
@@ -60,6 +61,7 @@ import { HealthModule } from "./health/health.module";
     AuthModule,
     AiModule,
     LearningModule,
+    KnowledgeModule,
     PushModule,
     SettingsModule,
     HealthModule

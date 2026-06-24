@@ -11,6 +11,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "test:unit": "jest --config ./test/jest-unit.json",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "ai:smoke": "ts-node scripts/smoke-anthropic.ts",
     "ai:auth-check": "ts-node scripts/check-anthropic-auth.ts"

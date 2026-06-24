@@ -80,6 +80,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Phase 7 — consent for learning the user's voice from their SENT mail.
+  // Learning is gated on this being true; revoking it stops future learning
+  // (derived profiles are abstracted, so revocation does not require purging
+  // raw content — there is none stored).
+  sentMailLearningConsent   Boolean   @default(false)
+  sentMailLearningConsentAt DateTime?
+  // Stamp of the last successful sent-mail learning pass.
+  sentMailLearnedAt         DateTime?
+
   emailCards         EmailCard[]
   feedbackEvents     FeedbackEvent[]
   auditLogs          AuditLog[]
@@ -202,6 +211,11 @@ model ToneProfile {
   avoidPhrases       String[] @default([])
   styleNotes         String[] @default([])
   autoSendEnabled    Boolean  @default(false)
+  // Phase 7 — provenance of automatic learning from sent mail. Lets the API
+  // distinguish learned defaults from explicit user edits and show "last
+  // learned" in settings.
+  learnedFromSentAt  DateTime?
+  learnedSampleSize  Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -226,6 +240,11 @@ model SenderProfile {
   autoSendAllowed  Boolean  @default(false)
   autoSendDenied   Boolean  @default(false)
   notes            String[] @default([])
+  // Phase 7 — relationship signals learned from how often / recently the user
+  // writes to this correspondent. Counts only; no message content is stored.
+  messageCount      Int       @default(0)
+  lastContactedAt   DateTime?
+  learnedFromSentAt DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

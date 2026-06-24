@@ -87,6 +87,20 @@ export interface OAuthStartParams {
   codeVerifier: string;
 }
 
+/**
+ * A message the user SENT, normalised for the Phase 7 learning pipeline.
+ * `recipients` is the union of To + Cc addresses. `bodyPreview` is Graph's
+ * short plaintext preview, never the full body — the learning pipeline only
+ * derives abstracted style features from it.
+ */
+export interface SentMessage {
+  id: string;
+  subject: string;
+  bodyPreview: string;
+  sentAt: string;
+  recipients: string[];
+}
+
 @Injectable()
 export class MicrosoftService {
   private readonly logger = new Logger(MicrosoftService.name);
@@ -285,6 +299,17 @@ export class MicrosoftService {
     const { accessToken } = await this.getValidAccessToken(userId);
     const messages = await this.graph.listRecentMessages(accessToken, top);
     return messages.map(toOutlookMessage);
+  }
+
+  /**
+   * Pull the user's most-recent SENT messages for Phase 7 voice learning.
+   * Read-only; persists nothing here. The KnowledgeService consumes the
+   * result and stores only abstracted, derived signals.
+   */
+  async getSentMessages(userId: string, top = 100): Promise<SentMessage[]> {
+    const { accessToken } = await this.getValidAccessToken(userId);
+    const messages = await this.graph.listSentMessages(accessToken, top);
+    return messages.map(toSentMessage);
   }
 
   async getMessageThread(
@@ -786,6 +811,22 @@ function toOutlookMessage(m: GraphMessage): OutlookMessage {
     hasAttachments: m.hasAttachments ?? false,
     fromName,
     fromEmail
+  };
+}
+
+function toSentMessage(m: GraphMessage): SentMessage {
+  const recipients = [
+    ...(m.toRecipients ?? []),
+    ...(m.ccRecipients ?? [])
+  ]
+    .map((r) => r.emailAddress?.address?.toLowerCase())
+    .filter((a): a is string => !!a && a.length > 0);
+  return {
+    id: m.id,
+    subject: m.subject ?? "(no subject)",
+    bodyPreview: m.bodyPreview ?? "",
+    sentAt: m.sentDateTime ?? new Date().toISOString(),
+    recipients: Array.from(new Set(recipients))
   };
 }
 
