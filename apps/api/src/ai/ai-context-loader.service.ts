@@ -1,6 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ToneId as PrismaToneId } from "@prisma/client";
 import { PrismaService } from "../common/prisma.service";
+import { EmbeddingService } from "../knowledge/embeddings/embedding.service";
+import { rankBySimilarity } from "../knowledge/embeddings/cosine";
 import type {
   AiDraftInput,
   MemoryItemSnippet,
@@ -9,6 +11,19 @@ import type {
   ToneId,
   ToneProfile
 } from "./ai.types";
+
+// How many memory rows to pull as semantic-ranking candidates, and how many to
+// actually feed the model. Candidates are already userId-scoped, so this stays
+// cheap; ranking happens app-side (see knowledge/embeddings/cosine.ts).
+const MEMORY_CANDIDATE_POOL = 30;
+const MEMORY_CONTEXT_LIMIT = 8;
+
+interface MemoryCandidate {
+  id: string;
+  scope: "USER" | "SENDER" | "THREAD" | "COMPANY";
+  content: string;
+  embedding: number[];
+}
 
 /**
  * Loads the per-user / per-sender context the AI module needs to draft a
@@ -21,7 +36,12 @@ import type {
  */
 @Injectable()
 export class AiContextLoader {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AiContextLoader.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly embeddings: EmbeddingService
+  ) {}
 
   async loadContext(args: {
     userId: string;
@@ -31,7 +51,7 @@ export class AiContextLoader {
     regenerateAttempt?: number;
     previousDraft?: string;
   }): Promise<AiDraftInput> {
-    const [toneRow, senderRow, memoryRows] = await Promise.all([
+    const [toneRow, senderRow, memoryRows, queryVec] = await Promise.all([
       this.prisma.toneProfile.findUnique({
         where: { userId: args.userId }
       }),
@@ -65,9 +85,13 @@ export class AiContextLoader {
           ]
         },
         orderBy: { createdAt: "desc" },
-        take: 8
-      })
+        take: MEMORY_CANDIDATE_POOL,
+        select: { id: true, scope: true, content: true, embedding: true }
+      }),
+      this.embedQuery(args.currentEmail)
     ]);
+
+    const memoryItems = selectMemoryItems(memoryRows, queryVec);
 
     return {
       userId: args.userId,
@@ -75,12 +99,64 @@ export class AiContextLoader {
       thread: args.thread ?? [],
       toneProfile: toneRow ? toToneProfile(toneRow) : null,
       senderProfile: senderRow ? toSenderProfile(senderRow) : null,
-      memoryItems: memoryRows.map(toMemorySnippet),
+      memoryItems,
       toneOverride: args.toneOverride,
       regenerateAttempt: args.regenerateAttempt,
       previousDraft: args.previousDraft
     };
   }
+
+  /**
+   * Embed the incoming email so we can rank memory by semantic relevance.
+   * Best-effort: on failure we return an empty vector and retrieval degrades
+   * to recency.
+   */
+  private async embedQuery(
+    email: AiDraftInput["currentEmail"]
+  ): Promise<number[]> {
+    try {
+      const text = `${email.subject}\n\n${email.bodyPreview ?? ""}`.trim();
+      if (!text) return [];
+      return await this.embeddings.embed(text);
+    } catch (err) {
+      this.logger.warn(
+        `Query embedding failed; falling back to recency: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return [];
+    }
+  }
+}
+
+/**
+ * Hybrid selection: take the most semantically-similar memory first, then
+ * top up with the most recent candidates (which preserve order from the DB
+ * query) so freshly-written, not-yet-embedded items still surface. Falls back
+ * to pure recency when no query vector is available.
+ */
+export function selectMemoryItems(
+  candidates: MemoryCandidate[],
+  queryVec: number[]
+): MemoryItemSnippet[] {
+  const chosen: MemoryCandidate[] = [];
+  const seen = new Set<string>();
+
+  if (queryVec.length > 0) {
+    for (const r of rankBySimilarity(queryVec, candidates, MEMORY_CONTEXT_LIMIT)) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      chosen.push(r);
+    }
+  }
+  for (const r of candidates) {
+    if (chosen.length >= MEMORY_CONTEXT_LIMIT) break;
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    chosen.push(r);
+  }
+
+  return chosen.map(toMemorySnippet);
 }
 
 function toToneId(t: PrismaToneId): ToneId {

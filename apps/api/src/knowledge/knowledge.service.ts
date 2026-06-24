@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../common/prisma.service";
 import { MicrosoftService, SentMessage } from "../microsoft/microsoft.service";
+import { EmbeddingService } from "./embeddings/embedding.service";
 import {
   extractRecipientSignals,
   extractStyleFeatures,
@@ -54,7 +55,8 @@ export class KnowledgeService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly microsoft: MicrosoftService
+    private readonly microsoft: MicrosoftService,
+    private readonly embeddings: EmbeddingService
   ) {}
 
   async setConsent(userId: string, granted: boolean): Promise<KnowledgeStatus> {
@@ -294,6 +296,21 @@ export class KnowledgeService {
       );
     }
 
+    // Best-effort embeddings for semantic retrieval; degrade to recency if the
+    // provider fails (never block a learning pass on it).
+    let vectors: number[][] = [];
+    let embeddingModel: string | null = null;
+    try {
+      vectors = await this.embeddings.embedBatch(facts);
+      embeddingModel = this.embeddings.model;
+    } catch (err) {
+      this.logger.warn(
+        `Topic-memory embedding failed; storing without vectors: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.memoryItem.deleteMany({
         where: {
@@ -302,14 +319,16 @@ export class KnowledgeService {
           sourceType: MemorySourceType.SENT_EMAIL
         }
       });
-      for (const content of facts) {
+      for (let i = 0; i < facts.length; i += 1) {
         await tx.memoryItem.create({
           data: {
             userId,
             scope: MemoryScope.USER,
             sourceType: MemorySourceType.SENT_EMAIL,
             sensitivity: SensitivityLevel.LOW,
-            content
+            content: facts[i],
+            embedding: vectors[i] ?? [],
+            embeddingModel: vectors[i] ? embeddingModel : null
           }
         });
       }

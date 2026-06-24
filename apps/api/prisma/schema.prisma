@@ -270,6 +270,11 @@ model MemoryItem {
   senderEmail String?
   threadId    String?
   expiresAt   DateTime?
+  /// Phase 7.2 — semantic-retrieval vector + the model that produced it.
+  /// Stored as Float[] and ranked app-side over the per-user candidate set;
+  /// swaps to a pgvector index at scale (docs/KNOWLEDGE_BASE_RESEARCH.md).
+  embedding      Float[]  @default([])
+  embeddingModel String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 

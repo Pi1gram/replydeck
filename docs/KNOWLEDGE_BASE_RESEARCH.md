@@ -270,8 +270,20 @@ You explicitly want a clause letting you analyze sent mail. Make it:
 > `POST /knowledge/consent`, `GET /knowledge/status`, `POST /knowledge/learn-from-sent`.
 > Verified: `tsc --noEmit` clean; 11/11 stylometry unit tests pass
 > (`npm run test:unit`). DB-backed e2e (`knowledge.e2e-spec.ts`) compiles and is
-> ready to run once a Postgres test DB is up. **Not yet:** run the migration
-> against the live DB; deploy; scheduled re-learning; steps 2/5/6 below.
+> ready to run once a Postgres test DB is up.
+>
+> **Phase 2 SHIPPED** — embeddings + semantic retrieval. New
+> `knowledge/embeddings/` (provider abstraction: deterministic mock default,
+> OpenAI `text-embedding-3-small` @ 256-dim behind a key; `cosine.ts`
+> app-side ranking). Memory items are embedded on write (learning feedback +
+> topic memory); `ai-context-loader` embeds the incoming email and does hybrid
+> semantic+recency retrieval (migration `20260624130000_phase7_memory_embeddings`,
+> `embedding Float[]` on MemoryItem). Semantic retrieval LEADS, recency tops up
+> — matching the research (style-as-sole-key was refuted). Verified: typecheck
+> clean; 24/24 unit tests (cosine, mock determinism/lexical-similarity, hybrid
+> selection). **Not yet:** run both migrations against the live DB; deploy;
+> scheduled re-learning; pgvector swap (Phase 3, only when per-user item counts
+> grow); Gmail (gated on CASA).
 
 1. **Ingest sent mail (Graph SentItems).** Extend `microsoft.service.ts` to sync
    the SentItems folder (you have `Mail.Read`). Bound the backfill window. This

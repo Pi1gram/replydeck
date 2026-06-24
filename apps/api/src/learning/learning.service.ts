@@ -7,6 +7,7 @@ import {
   SensitivityLevel
 } from "@prisma/client";
 import { PrismaService } from "../common/prisma.service";
+import { EmbeddingService } from "../knowledge/embeddings/embedding.service";
 
 const CONTENT_MAX = 400;
 const SNIPPET_MAX = 120;
@@ -25,7 +26,31 @@ interface MemoryDraft {
 export class LearningService {
   private readonly logger = new Logger(LearningService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly embeddings: EmbeddingService
+  ) {}
+
+  /**
+   * Embed memory content for semantic retrieval. Best-effort: a provider
+   * failure must never block learning, so we fall back to an empty vector
+   * (the retrieval layer degrades to recency for that item).
+   */
+  private async safeEmbed(
+    content: string
+  ): Promise<{ embedding: number[]; embeddingModel: string | null }> {
+    try {
+      const embedding = await this.embeddings.embed(content);
+      return { embedding, embeddingModel: this.embeddings.model };
+    } catch (err) {
+      this.logger.warn(
+        `Embedding failed; storing memory without vector: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return { embedding: [], embeddingModel: null };
+    }
+  }
 
   async recordFeedback(args: {
     userId: string;
@@ -52,6 +77,8 @@ export class LearningService {
       return;
     }
 
+    const { embedding, embeddingModel } = await this.safeEmbed(draft.content);
+
     await this.prisma.$transaction(async (tx) => {
       await this.enforceCap(tx, args.userId, draft);
       await tx.memoryItem.create({
@@ -61,7 +88,9 @@ export class LearningService {
           sourceType: draft.sourceType,
           sensitivity: draft.sensitivity,
           content: draft.content,
-          senderEmail: draft.senderEmail
+          senderEmail: draft.senderEmail,
+          embedding,
+          embeddingModel
         }
       });
     });
