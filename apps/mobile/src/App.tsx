@@ -20,7 +20,9 @@ import {
   regenerateCard as apiRegenerateCard,
   rejectCard as apiRejectCard
 } from "./api/emailCards";
+import { loadSession } from "./api/session";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { LoginScreen } from "./screens/LoginScreen";
 import { usePushRegistration } from "./hooks/usePushRegistration";
 import { registerNotificationCategories } from "./notifications/categories";
 import {
@@ -69,6 +71,12 @@ export default function App() {
   // but the hook itself internally try/catches every step.
   usePushRegistration();
 
+  // Gate the app on a session. `authChecked` flips once we've read storage;
+  // `signedIn` decides login-screen vs the normal flow. A single build serves
+  // many users — each logs in by email (see api/session.ts).
+  const [authChecked, setAuthChecked] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
   const [screen, setScreen] = useState<Screen>({ name: "onboarding" });
   const [pendingCards, setPendingCards] = useState<EmailCard[]>([]);
   const [laterCards, setLaterCards] = useState<EmailCard[]>([]);
@@ -102,7 +110,22 @@ export default function App() {
     }
   }, [reportError]);
 
+  // Restore the stored session once on launch before anything calls the API.
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const id = await loadSession();
+      if (cancelled) return;
+      setSignedIn(!!id);
+      setAuthChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!signedIn) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -119,7 +142,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [refreshAll]);
+  }, [refreshAll, signedIn]);
 
   // Deep links from the home-screen / lock-screen widget land here. Any
   // replydeck:// URL (the widget uses replydeck://queue) jumps straight to the
@@ -267,7 +290,22 @@ export default function App() {
         <ErrorBanner message={error} onDismiss={dismissError} />
       ) : null}
 
-      {screen.name === "onboarding" ? (
+      {!authChecked ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color={colors.gold} />
+        </View>
+      ) : null}
+
+      {authChecked && !signedIn ? (
+        <LoginScreen
+          onLoggedIn={() => {
+            setSignedIn(true);
+            setScreen({ name: "onboarding" });
+          }}
+        />
+      ) : null}
+
+      {authChecked && signedIn && screen.name === "onboarding" ? (
         <OnboardingScreen onContinue={() => setScreen({ name: "connect" })} />
       ) : null}
       {screen.name === "connect" ? (

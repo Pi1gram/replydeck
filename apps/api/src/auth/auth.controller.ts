@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -18,6 +19,8 @@ import { CryptoService } from "../common/crypto.service";
 import { Public } from "../common/public.decorator";
 import { MicrosoftConfig } from "../microsoft/microsoft.config";
 import { MicrosoftService } from "../microsoft/microsoft.service";
+import { UsersService } from "../users/users.service";
+import { LoginDto } from "./dto/login.dto";
 
 const STATE_COOKIE = "replydeck_oauth_state";
 const VERIFIER_COOKIE = "replydeck_oauth_verifier";
@@ -28,8 +31,22 @@ export class AuthController {
   constructor(
     private readonly microsoft: MicrosoftService,
     private readonly config: MicrosoftConfig,
-    private readonly crypto: CryptoService
+    private readonly crypto: CryptoService,
+    private readonly users: UsersService
   ) {}
+
+  /**
+   * Email login: resolve or create a user, returning the id the app stores
+   * and sends as x-user-id. Public — no x-user-id needed to call it. Lets one
+   * app build serve many users (replaces the baked-in EXPO_PUBLIC_DEV_USER_ID).
+   */
+  @Public()
+  @Post("auth/login")
+  @HttpCode(200)
+  async login(@Body() dto: LoginDto) {
+    const user = await this.users.loginOrCreate(dto.email, dto.name);
+    return { id: user.id, email: user.email, name: user.name };
+  }
 
   @Get("auth/me")
   async me(@CurrentUser() user: CurrentUserPayload) {

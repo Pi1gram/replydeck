@@ -1,5 +1,18 @@
 const API_URL = resolveApiUrl();
-const USER_ID = process.env.EXPO_PUBLIC_DEV_USER_ID ?? "";
+
+// The active user id, sent as x-user-id on every request. Seeded from the
+// build-time env (dev convenience) and overwritten at runtime once the user
+// logs in by email (see api/session.ts). This is what lets a single build
+// serve many users instead of baking one id per build.
+let currentUserId = process.env.EXPO_PUBLIC_DEV_USER_ID ?? "";
+
+export function setUserId(id: string): void {
+  currentUserId = id;
+}
+
+export function getUserId(): string {
+  return currentUserId;
+}
 
 function resolveApiUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL;
@@ -25,7 +38,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-user-id": USER_ID,
+      "x-user-id": currentUserId,
       ...(init.headers ?? {})
     }
   });
@@ -41,7 +54,7 @@ async function requestVoid(path: string, init: RequestInit = {}): Promise<void> 
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-user-id": USER_ID,
+      "x-user-id": currentUserId,
       ...(init.headers ?? {})
     }
   });
@@ -69,7 +82,7 @@ async function requestAllowing404<T>(
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-user-id": USER_ID,
+      "x-user-id": currentUserId,
       ...(init.headers ?? {})
     }
   });
