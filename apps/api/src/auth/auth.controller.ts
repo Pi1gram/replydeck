@@ -33,15 +33,17 @@ export class AuthController {
 
   @Get("auth/me")
   async me(@CurrentUser() user: CurrentUserPayload) {
-    const account = await this.microsoft.getConnectedAccount(user.id);
+    const status = await this.microsoft.getConnectionStatus(user.id);
     return {
       userId: user.id,
-      outlook: account
+      outlook: status.connected
         ? {
             connected: true,
-            email: account.email,
-            connectedAt: account.createdAt.toISOString(),
-            scopes: account.scopes
+            email: status.email,
+            connectedAt: status.connectedAt,
+            scopes: status.scopes,
+            needsReconnect: status.needsReconnect,
+            missingScopes: status.missingScopes
           }
         : { connected: false }
     };

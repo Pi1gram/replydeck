@@ -34,6 +34,7 @@ import {
 } from "./graph-client";
 import { summarizeAvailability, BusyInterval } from "./calendar/availability";
 import { detectMeetingIntent } from "./calendar/meeting-intent";
+import { missingScopes } from "./scope-utils";
 import { GraphSubscriptionsService } from "./graph-subscriptions.service";
 import { MicrosoftConfig } from "./microsoft.config";
 
@@ -104,6 +105,16 @@ export interface SentMessage {
   recipients: string[];
 }
 
+export interface ConnectionStatus {
+  connected: boolean;
+  email: string | null;
+  connectedAt: string | null;
+  scopes: string[];
+  missingScopes: string[];
+  /** True when connected but the grant predates a scope we now require. */
+  needsReconnect: boolean;
+}
+
 @Injectable()
 export class MicrosoftService {
   private readonly logger = new Logger(MicrosoftService.name);
@@ -143,6 +154,9 @@ export class MicrosoftService {
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
+    // Force the consent screen so reconnects actually grant newly-added scopes
+    // (e.g. Calendars.Read) rather than silently reusing the prior grant.
+    url.searchParams.set("prompt", "consent");
 
     await this.prisma.auditLog.create({
       data: {
@@ -418,6 +432,34 @@ export class MicrosoftService {
       }
     });
     return !!acct;
+  }
+
+  /**
+   * Connection + scope-health for a user. `needsReconnect` is true when the
+   * stored grant is missing a now-required scope (e.g. Calendars.Read added in
+   * Phase 7.3) — the app should prompt the user to reconnect.
+   */
+  async getConnectionStatus(userId: string): Promise<ConnectionStatus> {
+    const acct = await this.getConnectedAccount(userId);
+    if (!acct) {
+      return {
+        connected: false,
+        email: null,
+        connectedAt: null,
+        scopes: [],
+        missingScopes: [],
+        needsReconnect: false
+      };
+    }
+    const missing = missingScopes(acct.scopes);
+    return {
+      connected: true,
+      email: acct.email,
+      connectedAt: acct.createdAt.toISOString(),
+      scopes: acct.scopes,
+      missingScopes: missing,
+      needsReconnect: missing.length > 0
+    };
   }
 
   async getConnectedAccount(

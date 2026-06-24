@@ -13,6 +13,16 @@ export class MicrosoftController {
    * Pull recent inbox messages and create EmailCard rows for any not yet seen.
    * Idempotent — re-running over the same window only creates new rows.
    */
+  /**
+   * Connection + scope health. `needsReconnect: true` means the user granted
+   * access before a scope we now require (e.g. calendar) — prompt them to
+   * reconnect.
+   */
+  @Get("status")
+  status(@CurrentUser() user: CurrentUserPayload) {
+    return this.service.getConnectionStatus(user.id);
+  }
+
   @Post("sync")
   @HttpCode(200)
   async sync(

@@ -17,6 +17,7 @@ import { LearningModule } from "./learning/learning.module";
 import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { PushModule } from "./push/push.module";
 import { HealthModule } from "./health/health.module";
+import { AdminModule } from "./admin/admin.module";
 
 @Module({
   imports: [
@@ -64,7 +65,8 @@ import { HealthModule } from "./health/health.module";
     KnowledgeModule,
     PushModule,
     SettingsModule,
-    HealthModule
+    HealthModule,
+    AdminModule
   ],
   providers: [
     {
