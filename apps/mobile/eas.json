@@ -37,6 +37,14 @@
         "EXPO_PUBLIC_API_URL": "https://replydeck-api.fly.dev"
       }
     },
+    "testflight": {
+      "extends": "preview",
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://replydeck-api.fly.dev"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production",
